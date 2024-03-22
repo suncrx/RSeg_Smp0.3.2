@@ -1,0 +1,8 @@
+path: 'D:/GeoData/DLData/Buildings'
+
+train: 'train/images'
+val: 'val/images'
+
+nchannels: 3 
+nclasses:  1
+names: ['buildings']
