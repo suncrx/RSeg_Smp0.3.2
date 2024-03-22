@@ -129,8 +129,7 @@ def run(opt):
     print(f"Train size: {len(train_dataset)}")
     print(f"Valid size: {len(val_dataset)}")
     #print(f"Test size: {len(test_dataset)}")
-    
-    
+        
     n_cpu = 0
     #n_cpu = os.cpu_count()
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, 
@@ -139,7 +138,6 @@ def run(opt):
                                   shuffle=False, num_workers=n_cpu)
     
     
-
     #%% initialize model
     model, model_name = models.utils.create_model(arct, 
                                                   encoder,
