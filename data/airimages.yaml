@@ -1,0 +1,9 @@
+exp_name: "Air image segmentation"
+
+path: 'D:/GeoData/DLData/AerialImages'
+train: 'train/images'
+val: 'val/images'
+
+nchannels: 3 
+nclasses:  6
+names: ['unknown','road','building','water','vegetation','land']

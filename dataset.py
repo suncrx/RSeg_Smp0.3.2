@@ -6,7 +6,9 @@ import cv2
 import numpy as np
 #import copy
 
+import matplotlib.pylab as plt
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torchvision import transforms
 
@@ -24,44 +26,18 @@ methods:
 
 '''
 
-# data transformation
-#IMG_TRANS = transforms.Compose([transforms.ToTensor(),
-                                #transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5)),
-#                                ])   
-
-
-
-def make_one_hot(inp, num_classes):
-    """Convert class index tensor to one hot encoding tensor.
-    Args:
-         input: A tensor of shape [N, 1, *]
-         num_classes: An int of number of class
-    Returns:
-        A tensor of shape [N, num_classes, *]
-    """
-    inp = inp.long()
-    shape = np.array(inp.shape)
-    shape[1] = num_classes
-    shape = tuple(shape)
-    result = torch.zeros(shape)
-    result = result.scatter_(1, inp.cpu(), 1)
-
-    return result
-
-
 # Dataset for segmentation
 # return numpy image (H, W, 3)
 # and numpy mask (H, W)
 class SegDataset(Dataset):
     def __init__(self, root_dir, mode="train", 
                  n_classes=1, imgH=256, imgW=256,
-                 apply_aug = False, sub_size=-1):
+                 preprocess=None,
+                 apply_aug=False, sub_size=-1):
         
         assert mode in {"train", "val", "test"}
         self.mode = mode
-        
         self.root = root_dir
-        
         self.imgW = imgW
         self.imgH = imgH        
         
@@ -69,6 +45,7 @@ class SegDataset(Dataset):
         # multi-class segmentation : n_classes > 1
         self.n_classes = n_classes
         
+        self.preprocess = preprocess
         
         if apply_aug:
             if mode == 'train':
@@ -78,27 +55,17 @@ class SegDataset(Dataset):
         else:
             self.aug = None
         
-            
-        #self.trans = IMG_TRANS
-        
         # search image and mask filepaths
         self.images_directory = os.path.join(self.root, mode, "images")
-        self.masks_directory = os.path.join(self.root, mode, "labels")
-        #assert os.path.exists(self.images_directory)
-        #assert os.path.exists(self.images_directory)
+        self.masks_directory = os.path.join(self.root, mode, "masks")
         if not os.path.exists(self.images_directory):
             print("ERROR: Cannot find directory " + self.images_directory)
             sys.exit()
             
-        #if not os.path.exists(self.masks_directory):
-        #    print("ERROR: Cannot find directory " + self.masks_directory)
-        #    sys.exit()            
-
         print('Scanning files in %s ... ' % self.mode)
         print(' ' + self.images_directory)
         print(' ' + self.masks_directory)        
         self.imgPairs = self._list_files()
-        
         
         #subset the dataset
         #randomly select num items
@@ -140,37 +107,33 @@ class SegDataset(Dataset):
         # apply augmentation
         #image, mask = copy.deepcopy(oimage), copy.deepcopy(omask)
         image, mask = oimage, omask
-        if self.aug is not None:
+        if self.aug:
             sample = self.aug(image=image, mask=mask)
             image, mask = sample['image'], sample['mask']
-            
        
-        # convert image to tensor
+        # apply preprocessing on image (not on mask)
+        if self.preprocess:
+            image = self.preprocess(image)    
+       
+        # [1] convert image to tensor of shape [3, H, W], values between(0, 1.0)
         #image = self.trans(image)
-        image = transforms.ToTensor()(image)
+        image = transforms.ToTensor()(image).float()
         
-        # transform mask to tensor
+        # [2] transform mask to tensor
         # binary segmentation            
-        if self.n_classes <= 1:
+        if self.n_classes < 2:            
             # convert to (0, 1) float 
-            mask = transforms.ToTensor()(mask > 0)
-            mask = mask.float()
-            #return {'image':image, 'mask':mask, 
-            #        'oimage':oimage, 'omask':omask}        
-            return (image, mask)
+            mask = transforms.ToTensor()(mask > 0).float()
+            return (image, mask)                        
         # multi-class segmentation
         else:           
             # convert label mask to one-hot tensor
-            #masks = [(mask == v) for v in range(self.n_classes)]
-            #mask_cat = np.stack(masks, axis=0).astype('long')
-            mask = np.expand_dims(mask, axis=0)
-            mask = np.expand_dims(mask, axis=0)
-            mask_cat = make_one_hot(torch.as_tensor(mask), self.n_classes)
-            mask_cat = torch.squeeze(mask_cat)
-            #return {'image':image, 'mask':mask_cat, 
-            #        'oimage':oimage, 'omask':omask}            
-            return (image, mask_cat)
-    
+            mask = torch.squeeze(transforms.ToTensor()(mask).long())
+            mask_onehot = F.one_hot(mask, num_classes=self.n_classes)
+            mask_onehot = torch.transpose(mask_onehot, 2, 0)
+            return (image, mask_onehot)
+            
+     
     def get_image_and_mask_path(self, idx):
         return (self.imgPairs[idx]['image'], self.imgPairs[idx]['mask'])
     
@@ -264,7 +227,9 @@ if __name__ == '__main__':
     import matplotlib.pylab as plt
 
     data_dir = 'D:\\GeoData\\DLData\\buildings'      
-    ds = SegDataset(data_dir, 'train', 1, 256, 256,apply_aug=True,sub_size=32)        
+    #data_dir = 'D:\\GeoData\\DLData\\AerialImages'      
+    ds = SegDataset(data_dir, 'train', 1, 256, 256, 
+                    apply_aug=True,sub_size=32)        
     for i in range(10):        
         samp = ds[i]
         #oimg, omsk = samp['oimage'], samp['omask']

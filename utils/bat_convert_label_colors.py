@@ -31,7 +31,7 @@ import skimage
 import numpy as np
 
 ###############################################################
-ROOT_DIR = 'D:\\GeoData\\TestData\\DLData\\AerialImages'
+ROOT_DIR = 'D:\\GeoData\\DLData\\AerialImages'
 IN_FOLDER = 'masks_rgb'
 OUT_FOLDER = 'masks_rgb2'
 #color transfer file

@@ -21,6 +21,7 @@ import yaml
 import argparse
 from pathlib import Path
 
+import numpy as np
 import torch
 from torch import optim
 from torch.utils.data import DataLoader
@@ -28,6 +29,7 @@ from torch.utils.data import DataLoader
 import matplotlib.pylab as plt
 
 import segmentation_models_pytorch as smp
+
 # explictly import utils if segmentation_models_pytorch >= 0.3.2
 from segmentation_models_pytorch import utils as smp_utils 
 
@@ -53,7 +55,7 @@ PIN_MEMORY = True if DEV == "cuda" else False
 def parse_opt():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--data', type=str, default=ROOT/'data/buildings.yaml', 
+    parser.add_argument('--data', type=str, default=ROOT/'data/vehicles.yaml', 
                         help='dataset yaml path')
     
     parser.add_argument('--img_sz', '--img', '--img-size', type=int, 
@@ -62,22 +64,28 @@ def parse_opt():
     parser.add_argument('--out_dir', type=str, default='', 
                         help='training output path')    
     
-    parser.add_argument('--arct', type=str, default='unet', 
+    parser.add_argument('--arct', type=str, default='munet', 
                         help='model architecture (options: unet, unetplusplus, manet, linknet, fpn, pspnet, deeplabv3,deeplabv3plus, pan')
 
     parser.add_argument('--encoder', type=str, default='resnet34', 
                         help='encoder for the net (options: resnet34, resnet50, vgg16, vgg19')
 
-    parser.add_argument('--epochs', type=int, default=10)
-    parser.add_argument('--batch_size', type=int, default=4, help='total batch size for all GPUs, -1 for autobatch')
-    parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
-    parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
+    parser.add_argument('--epochs', type=int, default=2)
+    parser.add_argument('--batch_size', type=int, default=4, 
+                        help='total batch size for all GPUs, -1 for autobatch')
+    parser.add_argument('--lr', type=float, default=0.0001, 
+                        help='learning rate')
+    parser.add_argument('--momentum', type=float, default=0.9, 
+                        help='momentum')
     #parser.add_argument('--weight_decay', type=float, default=0.005, help='weight decay')
     
-    parser.add_argument('--aug', type=bool, default=True, help='Data augmentation')
-    parser.add_argument('--sub_size', type=float, default=100, help='subsize of training data')
+    parser.add_argument('--aug', type=bool, default=True, 
+                        help='Data augmentation')
+    parser.add_argument('--sub_size', type=float, default=1.0, 
+                        help='subsize of training data')
     
-    parser.add_argument('--checkpoint', type=bool, default=True, help='enable checking point')
+    parser.add_argument('--checkpoint', type=bool, default=True, 
+                        help='enable checking point')
             
     return parser.parse_args()
 
@@ -89,23 +97,29 @@ def run(opt):
     arct, encoder = opt.arct, opt.encoder
     batch_size, epochs = opt.batch_size, opt.epochs
     lr, momentum = opt.lr, opt.momentum
-    check_point = opt.checkpoint
+    #check_point = opt.checkpoint
     out_dir = opt.out_dir
     
     sub_size = opt.sub_size
     #applying data augumentation or not
     bAug = opt.aug
     
+    encoder_weight = 'imagenet'
+    
     # read data information from yaml file          
     assert os.path.exists(data_yaml_file)
     with open(data_yaml_file) as f:
-        datainfo = yaml.load(f, Loader=yaml.SafeLoader)
+        cfg = yaml.load(f, Loader=yaml.SafeLoader)
     # cfg is a dictionary
-    #print('data information:', datainfo)
-    n_classes = datainfo['nclasses']
-    n_channels = datainfo['nchannels']
-    class_names = datainfo['names']
-    root_data_dir = datainfo['path']
+    if 'exp_name' in cfg.keys():
+        print(cfg['exp_name'])
+    print('Data information:', cfg)
+    n_classes = cfg['nclasses']
+    n_channels = cfg['nchannels']
+    class_names = cfg['names']
+    root_data_dir = cfg['path']
+    train_folder = cfg['train']
+    val_folder = cfg['val']
     if out_dir == '':
         out_dir = os.path.join(root_data_dir, 'out')    
     os.makedirs(out_dir, exist_ok=True)
@@ -113,18 +127,21 @@ def run(opt):
     # %% prepare datasets
     # init train, val, test sets
     print('Preparing data ...')
+    
+    #preprocessing function from segmentation-models-pytorch package
+    preprocessing_fn = smp.encoders.get_preprocessing_fn(encoder, encoder_weight)
+
     train_dataset = SegDataset(root_data_dir, "train", 
                                n_classes=n_classes, imgH=img_sz, imgW=img_sz, 
+                               preprocess=preprocessing_fn,
                                apply_aug = bAug, sub_size=sub_size)
     val_dataset = SegDataset(root_data_dir, "val", 
-                               n_classes=n_classes, imgH=img_sz, imgW=img_sz)
+                             n_classes=n_classes, imgH=img_sz, imgW=img_sz,
+                             preprocess=preprocessing_fn)
     
     # It is a good practice to check datasets don't intersects with each other
     train_imgs = train_dataset.get_image_filepaths()
     val_imgs = val_dataset.get_image_filepaths()
-    #test_imgs = test_dataset.get_image_filepaths()
-    #assert set(test_imgs).isdisjoint(set(train_imgs))
-    #assert set(test_imgs).isdisjoint(set(val_imgs))
     assert set(val_imgs).isdisjoint(set(train_imgs))
     print(f"Train size: {len(train_dataset)}")
     print(f"Valid size: {len(val_dataset)}")
@@ -139,10 +156,11 @@ def run(opt):
     
     
     #%% initialize model
-    model, model_name = models.utils.create_model(arct, 
-                                                  encoder,
+    model, model_name = models.utils.create_model(arct=arct, 
+                                                  encoder=encoder,
+                                                  encoder_weigths=encoder_weight,
                                                   n_classes = n_classes,
-                                                  in_channels=n_channels)
+                                                  in_channels = n_channels)
     if model is None:
         print("ERROR: cannot create a model named '%s'" % model_name)
         sys.exit(0)
@@ -157,24 +175,25 @@ def run(opt):
     # optimizer
     opt = optim.AdamW(model.parameters(), lr=lr, betas=[0.9, 0.999],
                      eps=1e-7, amsgrad=False)
-    #opt = optim.SGD(model.parameters(), lr=config.INIT_LR, momentum=0.9)
+    #opt = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
     
     # learning rate scheduler
     #scheduler = lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.1)
-    
-    
+        
     #%% training
     print("\nTraining network: %s ..." % model_name)
     
-    train_epoch = smp.utils.train.TrainEpoch(model, loss=lossFunc, metrics=metrics,
+    train_epoch = smp_utils.train.TrainEpoch(model, loss=lossFunc, 
+                                             metrics=metrics,
                                              optimizer=opt, device=DEV, verbose=True)
     
-    val_epoch = smp.utils.train.ValidEpoch(model, loss=lossFunc, metrics=metrics,
-                                             device=DEV, verbose=True )
+    val_epoch = smp_utils.train.ValidEpoch(model, loss=lossFunc, 
+                                           metrics=metrics,
+                                           device=DEV, verbose=True )
     
     
     startTime = time.time()
-    max_score = 0
+    max_score = -np.inf
     best_epoch = 0
     train_losses, val_losses = [], []
     train_scores, val_scores = [], []
@@ -222,7 +241,7 @@ def run(opt):
     plt.xlabel("Epoch #")
     plt.ylabel("Dice Loss")
     plt.legend(loc="lower left")
-    plt.savefig(os.path.join(out_dir, 'fig_'+model_name+'_loss.png'), dpi=200)
+    plt.savefig(os.path.join(out_dir, model_name+'_loss.png'), dpi=200)
     
     plt.figure()
     plt.plot(train_scores, label="train_score")
@@ -231,7 +250,7 @@ def run(opt):
     plt.xlabel("Epoch #")
     plt.ylabel("IoU")
     plt.legend(loc="lower left")
-    plt.savefig(os.path.join(out_dir, 'fig_'+model_name+'_IoU.png'), dpi=200)
+    plt.savefig(os.path.join(out_dir, model_name+'_IoU.png'), dpi=200)
 
     
     print('Finished')    

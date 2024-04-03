@@ -8,6 +8,7 @@ Created on Mon Aug 28 19:06:47 2023
 import torch
 import segmentation_models_pytorch as smp
 
+from .munet  import MUNet
 from .munet1 import MUnet1
 from .munet2 import MUnet2
 
@@ -15,13 +16,14 @@ from .munet2 import MUnet2
 #import munet2
 
 #-----------------------------------------------------------------------------
-def create_model(arct='unet', encoder='resnet34', n_classes=1, in_channels=3):
+def create_model(arct='unet', encoder='resnet34', encoder_weigths='imagenet',
+                 n_classes=1, in_channels=3):
 
     m_fullname = arct + '_' + encoder     
     
     activation_name = 'softmax' if n_classes>1 else "sigmoid"
     
-    ENCODER_WEIGHTS = 'imagenet'
+    ENCODER_WEIGHTS = encoder_weigths
     ENCODER = encoder
     
     if arct.lower()=='unet':
@@ -47,14 +49,39 @@ def create_model(arct='unet', encoder='resnet34', n_classes=1, in_channels=3):
                          #activation='softmax')
     
     elif arct.lower()=='fpn':
-        MODEL = smp.FPN('resnet34', encoder_weights=ENCODER_WEIGHTS,
+        MODEL = smp.FPN(encoder_name=ENCODER, encoder_weights=ENCODER_WEIGHTS,
                         in_channels=in_channels,  classes=n_classes,
                         activation=activation_name)
     
     elif arct.lower()=='deeplabv3':
-        MODEL = smp.DeepLabV3('resnet34', encoder_weights=ENCODER_WEIGHTS,
+        MODEL = smp.DeepLabV3(encoder_name=ENCODER, encoder_weights=ENCODER_WEIGHTS,
                         in_channels=in_channels,  classes=n_classes,
                         activation=activation_name)
+        
+    elif arct.lower()=='deeplabv3plus':
+        MODEL = smp.DeepLabV3Plus(encoder_name=ENCODER, encoder_weights=ENCODER_WEIGHTS,
+                              in_channels=in_channels,  classes=n_classes,
+                              activation=activation_name)  
+    
+    elif arct.lower()=='manet':
+        MODEL = smp.MAnet(encoder_name=ENCODER, encoder_weights=ENCODER_WEIGHTS,
+                          in_channels=in_channels,  classes=n_classes,
+                          activation=activation_name)  
+
+    elif arct.lower()=='pan':
+        MODEL = smp.PAN(encoder_name=ENCODER, encoder_weights=ENCODER_WEIGHTS,
+                        in_channels=in_channels,  classes=n_classes,
+                        activation=activation_name)     
+
+    elif arct.lower()=='pspnet':
+        MODEL = smp.PSPNet(encoder_name=ENCODER, encoder_weights=ENCODER_WEIGHTS,
+                        in_channels=in_channels,  classes=n_classes,
+                        activation=activation_name)              
+        
+    elif arct.lower()=='munet':    
+        MODEL = MUNet(in_channels=in_channels, n_classes=n_classes, 
+                      apply_activation=True)
+        m_fullname = arct
         
     elif arct.lower()=='munet1':        
         MODEL = MUnet1(n_classes=n_classes, activation=activation_name)
@@ -102,11 +129,12 @@ def load_seg_model(fpath):
     encoder = mdict['encoder']
     
     model, model_name = create_model(arct=arct, encoder=encoder, 
-                         n_classes=n_classes, 
-                         in_channels=in_channels)
+                                     encoder_weigths='imagenet',
+                                     n_classes=n_classes, 
+                                     in_channels=in_channels)
     model.load_state_dict(mdict['model_state_dict']) #, map_location=DEVICE)
     
-    return model, model_name, n_classes, class_names
+    return model, model_name, n_classes, class_names, in_channels
 
 
 

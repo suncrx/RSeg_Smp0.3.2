@@ -5,5 +5,5 @@ train: 'train/images'
 val: 'val/images'
 
 nchannels: 3 
-nclasses:  1
-names: ['buildings']
+nclasses:  2
+names: ['unknown','buildings']

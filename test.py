@@ -18,6 +18,7 @@ import matplotlib.pylab as plt
 
 import segmentation_models_pytorch as smp
 # explictly import utils if segmentation_models_pytorch >= 0.3.2
+from segmentation_models_pytorch import utils as smp_utils 
 
 import models
 from dataset import SegDataset
@@ -33,6 +34,7 @@ ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 # determine the device to be used for training and evaluation
 DEV = "cuda" if torch.cuda.is_available() else "cpu"
+print('Device : ', DEV)
 
 #======================================================================
 def make_prediction(model, image, out_H, out_W, binary=False, conf=0.5):  
@@ -42,50 +44,56 @@ def make_prediction(model, image, out_H, out_W, binary=False, conf=0.5):
     with torch.no_grad(): 
         # apply image transformation. This step turns the image into a tensor.
         # with the shape (1, 3, H, W). See IMG_TRANS in dataset.py
-        #image = IMG_TRANS(image)
         image = torch.unsqueeze(image, 0)        
-        
         # make the prediction, pass the results through the sigmoid
         # function, and convert the result to a NumPy array
         pred = model.forward(image).squeeze()                
-        
         # Sigmod or softmax has been performed in the net
         if binary:
             pred = cv2.resize(pred.numpy(), (out_W, out_H))
             pred = np.uint8(pred>=conf)
+            #pred = np.uint8(pred*255)
         else:
             #determine the class by the index with the maximum                     
             pred = np.uint8(torch.argmax(pred, dim=0))        
             #resize to the original size        
             pred = cv2.resize(pred, (out_W, out_H),
                                    interpolation=cv2.INTER_NEAREST)
-            print('Found classes: ', np.unique(pred))                  
-        
+            #print('Found classes: ', np.unique(pred))                  
     return pred
 
 
-def Cal_IoU(predMask, gtMask, n_classes):
+# calculate the evaluation metrics between the predicted mask and ground-truth
+def eval_metrics(predMask, gtMask, n_classes):
     if n_classes>1:
         pm = [predMask==v for v in range(n_classes)]
         gm = [gtMask==v for v in range(n_classes)]
-        pm = np.array(pm)
-        gm = np.array(gm)
+        pm, gm = np.array(pm), np.array(gm)
     else:
-        pm = np.uint8(predMask>0)
-        gm = np.uint8(gtMask>0)
-        
-    iou = smp.utils.metrics.IoU()
+        pm, gm = np.uint8(predMask>0), np.uint8(gtMask>0)        
+    #iou = smp.utils.metrics.IoU()  #for smp 0.2.1
+    iou = smp_utils.metrics.IoU()   #for smp >= 0.3.2
+    acc = smp_utils.metrics.Accuracy()
+    pre = smp_utils.metrics.Precision()
+    rec = smp_utils.metrics.Recall()
+    fsc = smp_utils.metrics.Fscore()
+    
     iouv = iou.forward(torch.as_tensor(pm), torch.as_tensor(gm))
-    return iouv
+    accv = acc.forward(torch.as_tensor(pm), torch.as_tensor(gm))
+    prev = pre.forward(torch.as_tensor(pm), torch.as_tensor(gm))
+    recv = rec.forward(torch.as_tensor(pm), torch.as_tensor(gm))
+    fscv = fsc.forward(torch.as_tensor(pm), torch.as_tensor(gm))
+    
+    #return iouv
+    return {'iou':iouv, 'acc':accv, 'pre':prev, 'rec':recv, 'fsc':fscv}
 
 
 def run(opt):
     #print(opt)
     # get parameters
     data_dir, img_sz = opt.data_dir, opt.img_sz
-    model_file = opt.model_file
-    out_dir = opt.out_dir
-    conf = opt.conf
+    model_file, out_dir = opt.model_file, opt.out_dir
+    conf, plot = opt.conf, opt.plot
     
     if not os.path.exists(model_file):
         raise Exception('Can not find model path: %s' % model_file)
@@ -103,27 +111,33 @@ def run(opt):
     #--------------------------------------------------------------------    
     # load our model from disk and flash it to the current device
     print("Loading model: %s" % model_file)
-    model, model_name, n_classes, class_names = models.utils.load_seg_model(model_file)    
+    model, model_name, n_classes, class_names, in_channels = models.utils.load_seg_model(model_file)    
     
     #---------------------------------------------------------------------------
     # load the image paths in our testing directory and
     # randomly select 10 image paths
     print("Loading test image ...")
+    #preprocessing function from segmentation-models-pytorch package
+    preprocessing_fn = smp.encoders.get_preprocessing_fn('resnet34', 'imagenet')    
     testDS = SegDataset(data_dir, mode="test", 
                         n_classes=n_classes, 
                         imgH=img_sz, imgW=img_sz,
+                        preprocess=preprocessing_fn,
                         apply_aug = False)
     
-    nm = min(len(testDS), 10)
-    IoUs = []
+    np.set_printoptions(formatter={'float': '{: 0.3f}'.format})
+    
+    nm = len(testDS)
+    #nm = min(len(testDS), 10)
+    metrics = []
+    imgnames = []
     for i in range(nm):
         #get preprocessed image and mask
         img, gtMask =  testDS[i]    
         #get the original image and mask
         ori_img, ori_gtMask = testDS.get_image_and_mask(i)
         #get the image and mask filepaths
-        imgPath, mskPath = testDS.get_image_and_mask_path(i)
-        
+        imgPath, mskPath = testDS.get_image_and_mask_path(i)        
         outH, outW = ori_img.shape[0:2]
         
         # make predictions and visualize the results
@@ -135,99 +149,126 @@ def run(opt):
         pred = make_prediction(model, img, outH, outW, 
                                binary=is_binary, conf=conf)
         
-        #IoU evaluation
-        np.set_printoptions(formatter={'float': '{: 0.3f}'.format})
-        
-        #if config.N_CLASSES>1:
-        #    iouvs = evam.iou_multi(pred, ori_gtMask)
-        #    print('IoUs:', iouvs)
-        #    print('IoUs max min ave : %.3f %.3f %.3f' % (iouvs.max(), iouvs.min(), iouvs.mean()))
-        #else:
-        #    iouv = evam.iou_binary(pred, ori_gtMask)
-        #    print('IoUv:', iouv)
-    
-        iouv = Cal_IoU(pred, ori_gtMask, n_classes=n_classes)    
-        print('IoU: %.3f' % iouv)
-        IoUs.append(iouv)
+        #evaluation
+        #iouv = Cal_IoU(pred, ori_gtMask, n_classes=n_classes)    
+        res = eval_metrics(pred, ori_gtMask, n_classes=n_classes)     
+        iouv, accv, prev = res['iou'], res['acc'],res['pre']
+        recv, fscv = res['rec'], res['fsc']         
+        metrics.append([iouv, accv, prev, recv, fscv])
+        print('IoU: %.3f Acc: %.3f Prec: %.3f Rec: %.3f Fscore: %.3f' % 
+              (iouv, accv, prev, recv, fscv))
+        image_basename = os.path.basename(imgPath) 
+        imgnames.append(image_basename)
         
         #------------------------------------
         #save and convert results to rgb label for visualization 
         image_basename = os.path.basename(imgPath) 
         bname, ext = os.path.splitext(image_basename)
-        out_mskPath = os.path.join(outpred_dir, bname+'.png')        
+        out_mskPath = os.path.join(outpred_dir, bname+'_msk.png')        
         fig_path = os.path.join(outpred_dir, 'plot_'+bname+'.png')           
         stitle = '%s IoU %.3f' % (image_basename, iouv)
+        #save image
+        bgrimg = cv2.cvtColor(ori_img, cv2.COLOR_BGR2RGB)
+        cv2.imwrite(os.path.join(outpred_dir, image_basename), bgrimg)    
         if is_binary:
             #save predicted mask (one channel)    
             Mask = np.uint8(pred*255)        
             cv2.imwrite(out_mskPath, Mask)
+            #save gt mask
+            if ori_gtMask.max()==1:
+                ori_gtMask = ori_gtMask*255
+            cv2.imwrite(os.path.join(outpred_dir, bname+'_gt.png'), ori_gtMask)                
             #plot results
-            plot_prediction(ori_img, ori_gtMask, Mask, 
-                            sup_title=stitle, save_path=fig_path, 
-                            auto_close=True)   
+            if plot:
+                plot_prediction(ori_img, ori_gtMask, Mask, 
+                                sup_title=stitle, save_path=fig_path, 
+                                auto_close=True)   
         else:
+            #save predicted mask
             Mask = np.uint8(pred)        
             cv2.imwrite(out_mskPath, Mask)
-            Mask_rgb = np.uint8(pred*255)        
+            Mask_rgb = Mask        
             out_rgbMskPath = os.path.join(outpred_dir, bname+'_rgb.png')        
             cv2.imwrite(out_rgbMskPath, Mask_rgb)
-            ori_gtMask_rgb = np.uint8(ori_gtMask*255)
-            #plt results
-            plot_prediction(ori_img, ori_gtMask_rgb, Mask_rgb, 
-                            sup_title=stitle, save_path=fig_path, 
-                            auto_close=True)   
+            #save gt mask            
+            ori_gtMask_rgb = ori_gtMask
+            cv2.imwrite(os.path.join(outpred_dir, bname+'_gt.png'), ori_gtMask_rgb)
+            #plot results
+            if plot:
+                plot_prediction(ori_img, ori_gtMask_rgb, Mask_rgb, 
+                                sup_title=stitle, save_path=fig_path, 
+                                auto_close=True)   
         
-        #copy original image and mask to the output folder
-        mask_basename = os.path.basename(mskPath)
-        bname, ext = os.path.splitext(mask_basename)         
-        shutil.copy(mskPath, os.path.join(outpred_dir, bname+'_gt'+ext))        
-        shutil.copy(imgPath, os.path.join(outpred_dir, image_basename))
+            '''
+            #convert Mask to rgb label image and save
+            RgbMask = label_to_rgbLabel(Mask, label_colors)
+            BgrMask = cv2.cvtColor(RgbMask, cv2.COLOR_RGB2BGR)            
+            cv2.imwrite(out_rgbMskPath, BgrMask)
+            print('Saved: %s' % out_rgbMskPath)
+            
+            #convert ground-truth mask to rgb label image
+            gtRgbMask = label_to_rgbLabel(ori_gtMask, label_colors)            
+            '''
         
-        '''
-        #convert Mask to rgb label image and save
-        RgbMask = label_to_rgbLabel(Mask, label_colors)
-        BgrMask = cv2.cvtColor(RgbMask, cv2.COLOR_RGB2BGR)            
-        cv2.imwrite(out_rgbMskPath, BgrMask)
-        print('Saved: %s' % out_rgbMskPath)
-        
-        #convert ground-truth mask to rgb label image
-        gtRgbMask = label_to_rgbLabel(ori_gtMask, label_colors)            
-        '''
-        
-    #IouS 
-    MIoUs = np.array(IoUs)
-    print('\nMax IoU: %.3f' % MIoUs.max())
-    print('Min IoU: %.3f' % MIoUs.min())
-    print('Mean IoU: %.3f' % MIoUs.mean())
-    plt.figure()
-    plt.plot(MIoUs, '.')
-    plt.show()
-        
+    #Evaluation metrics 
+    Mm = np.array(metrics)
+    maxv = Mm.max(axis=0)
+    minv = Mm.min(axis=0)
+    meanv = Mm.mean(axis=0)
+    print('\nname,  Iou,  Accuracy,  Precision, Recall, Fscore')
+    print('Max,  %.3f, %.3f, %.3f, %.3f, %.3f' % 
+          (maxv[0],maxv[1],maxv[2],maxv[3],maxv[4]))
+    print('Min,  %.3f, %.3f, %.3f, %.3f, %.3f' % 
+          (minv[0],minv[1],minv[2],minv[3],minv[4]))
+    print('Mean,  %.3f, %.3f, %.3f, %.3f, %.3f' % 
+          (meanv[0],meanv[1],meanv[2],meanv[3],meanv[4]))
+    #plt.figure()
+    #plt.plot(Mm[0], '.')
+    #plt.show()        
     print('Done!')    
     print('Results saved: %s' % outpred_dir)       
     
-    
+    #write metrics to log file
+    logfn = os.path.join(outpred_dir, model_basename+'_log.txt')
+    with open(logfn, 'w') as fo:
+        print('\nname,  Iou,  Accuracy,  Precision, Recall, Fscore', file=fo)
+        for i in range(Mm.shape[0]):
+            print('%s, %.3f, %.3f, %.3f, %.3f, %.3f' % 
+                  (imgnames[i],Mm[i][0],Mm[i][1],Mm[i][2],Mm[i][3],Mm[i][4]),
+                  file=fo)
+        print('%s, %.3f, %.3f, %.3f, %.3f, %.3f' % 
+                ('Max',maxv[0],maxv[1],maxv[2],maxv[3],maxv[4]), file=fo)
+        print('%s, %.3f, %.3f, %.3f, %.3f, %.3f' % 
+                ('Min',minv[0],minv[1],minv[2],minv[3],minv[4]), file=fo)
+        print('%s, %.3f, %.3f, %.3f, %.3f, %.3f' % 
+                ('Mean',meanv[0],meanv[1],meanv[2],meanv[3],meanv[4]), file=fo)
+        
 
 #%% parse arguments from command line
 def parse_opt():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--model_file', type=str, 
-                        default='D:/GeoData/DLData/Buildings/out/unet_resnet34_best.pt', 
+                        default='D:/GeoData/DLData/Waters/WaterTiles/out/unet_resnet34_best.pt', 
+                        #default='D:/GeoData/DLData/AerialImages/out/unet_resnet34_best.pt',                         
                         help='model filepath')
     
     parser.add_argument('--data_dir', type=str, 
-                        default='D:/GeoData/DLData/Buildings', 
+                        default='D:/GeoData/DLData/Waters/WaterTiles', 
+                        #default='D:/GeoData/DLData/AerialImages', 
                         help='test image directory')
     
     parser.add_argument('--img_sz', type=int, 
-                        default=512, help='input image size (pixels)')
+                        default=256, help='input image size (pixels)')
     
     parser.add_argument('--out_dir', type=str, default=ROOT / 'out', 
                         help='training output path')    
     
     parser.add_argument('--conf', type=float, default=0.5, 
                        help='test confidence')    
+    
+    parser.add_argument('--plot', type=bool, default=True, 
+                       help='Plot the results or not')   
                
     return parser.parse_args() 
 

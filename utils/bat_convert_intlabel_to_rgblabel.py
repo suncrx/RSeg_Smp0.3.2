@@ -24,11 +24,8 @@ import os, sys
 import getopt
 import cv2
 
-sys.path.append('..')
-import pub
 
-#from .pub.colorlabel import label_to_rgbLabel, load_rgb_label
-#from .. import pub
+from colorlabel import label_to_rgbLabel, load_rgb_label
 
 
 #############################################################
@@ -48,7 +45,7 @@ for op, value in opt:
 
 #load class define and colors
 cls_def_file = os.path.join(ROOT_DIR, CLS_DEF_FILE)
-class_labels = pub.load_rgb_label(cls_def_file)
+class_labels = load_rgb_label(cls_def_file)
 
 
 out_dir = os.path.join(ROOT_DIR, 'train', 'masks_to_rgbmasks')
@@ -64,7 +61,7 @@ for fn in maskfiles:
     
     mask = cv2.imread(fpath)
     
-    rgb_labimg = pub.label_to_rgbLabel(mask, class_labels)
+    rgb_labimg = label_to_rgbLabel(mask, class_labels)
     rgb_labimg = cv2.cvtColor(rgb_labimg, cv2.COLOR_RGB2BGR)
     
     cv2.imwrite(os.path.join(out_dir, fn+'.png'), rgb_labimg)

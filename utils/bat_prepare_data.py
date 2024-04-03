@@ -29,10 +29,8 @@ import random
 from patchify import patchify
 from PIL import Image
 
-sys.path.append('..')
-import pub
 
-from pub.colorlabel import load_rgb_label, rgbLabel_to_label 
+from colorlabel import load_rgb_label, rgbLabel_to_label 
 
 
 # patchify an image into patches

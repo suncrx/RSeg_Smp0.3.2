@@ -1,34 +1,10 @@
----
-exp_name: "Waters-segmentation"
+exp_name: "Building-segmentation"
 
-#data
-root_dir: 'D:\GeoData\DLData\Waters\WaterDataset'    
-out_folder: out
+path:  '/home/chenrx/GeoData/DLData/Waters'
+train: 'train/images'
+val: 'val/images'
 
-#val_split:  0.1
-
- 
-#model
-marct: UNET
-mencoder: resnet34
-mclasses:  1
-mchannels: 3
-mimgsize:  128
-  
-#training
-max_epochs:  5
-batch_size:  8
-check_point: True
-
-
-#testing
-test_mfile: ' '  
-test_btsize: 8
-
-
-#others
-num_workers: 0
-gpus: 1
-display:     False
-limit_batch: False
+nchannels: 3 
+nclasses:  1
+names: ['water']
 
