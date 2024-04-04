@@ -56,13 +56,15 @@ def get_train_aug(height=256, width=256):
         
         albu.Rotate(p=0.5),
         
-        albu.IAAPerspective(p=0.1),
+        #albu.IAAPerspective(p=0.1),
+        albu.Perspective(p=0.1),
         
         
         # pixel level augumentation--------------------
         albu.Downscale(scale_min=0.25, scale_max=0.25, p=0.1),
         albu.ToGray(p=0.2),
-        albu.IAAAdditiveGaussianNoise(p=0.2),
+        #albu.IAAAdditiveGaussianNoise(p=0.2),
+        #albu.GaussianNoise(p=0.2),
         albu.FancyPCA(alpha=0.1, p=0.2),
         
         albu.OneOf(
@@ -76,7 +78,8 @@ def get_train_aug(height=256, width=256):
 
         albu.OneOf(
             [
-                albu.IAASharpen(p=1),
+                #albu.IAASharpen(p=1),
+                albu.Sharpen(p=1),
                 albu.Blur(blur_limit=3, p=1),
                 albu.MotionBlur(blur_limit=3, p=1),
             ],
