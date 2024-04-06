@@ -36,6 +36,7 @@ from segmentation_models_pytorch import utils as smp_utils
 import models
 from dataset import SegDataset
 from utils.common import log_csv
+from models.loss_rmi import RMILoss
 
 #%% get current directory
 FILE = Path(__file__).resolve()
@@ -64,20 +65,20 @@ def parse_opt():
     parser.add_argument('--out_dir', type=str, default='', 
                         help='training output path')    
     
-    parser.add_argument('--arct', type=str, default='munet', 
+    parser.add_argument('--arct', type=str, default='unet', 
                         help='model architecture (options: unet, unetplusplus, manet, linknet, fpn, pspnet, deeplabv3,deeplabv3plus, pan')
 
     parser.add_argument('--encoder', type=str, default='resnet34', 
                         help='encoder for the net (options: resnet34, resnet50, vgg16, vgg19')
 
-    parser.add_argument('--epochs', type=int, default=2)
+    parser.add_argument('--epochs', type=int, default=5)
     parser.add_argument('--batch_size', type=int, default=4, 
                         help='total batch size for all GPUs, -1 for autobatch')
     parser.add_argument('--lr', type=float, default=0.0001, 
                         help='learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, 
                         help='momentum')
-    #parser.add_argument('--weight_decay', type=float, default=0.005, help='weight decay')
+    parser.add_argument('--weight_decay', type=float, default=0.005, help='weight decay')
     
     parser.add_argument('--aug', type=bool, default=True, 
                         help='Data augmentation')
@@ -96,7 +97,7 @@ def run(opt):
     data_yaml_file, img_sz = opt.data, opt.img_sz
     arct, encoder = opt.arct, opt.encoder
     batch_size, epochs = opt.batch_size, opt.epochs
-    lr, momentum = opt.lr, opt.momentum
+    lr, momentum, w_decay = opt.lr, opt.momentum, opt.weight_decay
     #check_point = opt.checkpoint
     out_dir = opt.out_dir
     
@@ -168,6 +169,7 @@ def run(opt):
     # loss function
     #lossFunc = smp.utils.losses.DiceLoss()         #version 0.2.1
     lossFunc = smp_utils.losses.DiceLoss()          #version 0.3.2
+    #lossFunc = RMILoss(with_logits=False)
     
     # metrics
     metrics = [smp_utils.metrics.IoU(threshold=0.5)]
@@ -175,7 +177,8 @@ def run(opt):
     # optimizer
     opt = optim.AdamW(model.parameters(), lr=lr, betas=[0.9, 0.999],
                      eps=1e-7, amsgrad=False)
-    #opt = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
+    #opt = optim.SGD(model.parameters(), lr=lr, momentum=momentum,
+    #                weight_decay=w_decay)
     
     # learning rate scheduler
     #scheduler = lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.1)
@@ -197,14 +200,15 @@ def run(opt):
     best_epoch = 0
     train_losses, val_losses = [], []
     train_scores, val_scores = [], []
+    loss_name = lossFunc.__name__
     for i in range(0, epochs):
         time_se = time.time()
         print('\nEpoch: %d/%d' % (i+1, epochs))
         train_logs = train_epoch.run(train_dataloader)
         val_logs = val_epoch.run(val_dataloader)
     	
-        train_losses.append(train_logs['dice_loss'])
-        val_losses.append(val_logs['dice_loss'])
+        train_losses.append(train_logs[loss_name])
+        val_losses.append(val_logs[loss_name])
         
         tsc = train_logs['iou_score']
         vsc = val_logs['iou_score']

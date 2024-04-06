@@ -31,7 +31,7 @@ methods:
 # and numpy mask (H, W)
 class SegDataset(Dataset):
     def __init__(self, root_dir, mode="train", 
-                 n_classes=1, imgH=256, imgW=256,
+                 n_classes=1, imgH=None, imgW=None,
                  preprocess=None,
                  apply_aug=False, sub_size=-1):
         
@@ -85,8 +85,7 @@ class SegDataset(Dataset):
         return len(self.imgPairs)
 
 
-    # return a dictionry 
-    # {'image':image, 'mask':mask, 'oimage':oimage, 'omask':omask}  
+    # return a tuple  (image, mask)
     # image: tensor image with shape (3, H, W), and data range (0 ~ 1.0)
     # mask: binary mask image of size (H, W), with value 0 and 1.0.
     # oimage: uint8 image numpy (H, W, 3)

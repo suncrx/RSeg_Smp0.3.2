@@ -13,6 +13,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 import matplotlib.pylab as plt
 
@@ -36,30 +37,52 @@ ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 DEV = "cuda" if torch.cuda.is_available() else "cpu"
 print('Device : ', DEV)
 
+
+#======================================================================
+#padding image to the size of 32*X
+#The shape of input image should be (Channel, Height, Width), e.g. 3*213*2455
+def pad_image_32x(image):
+    c, h, w = image.shape
+    if 32*int(w/32) != w:
+        padx = 32*int(w/32+1)-w
+        image = F.pad(image, (0,padx,0,0,0,0))
+    if 32*int(h/32) != h:
+        pady = 32*int(h/32+1)-h
+        image = F.pad(image, (0,0,0,pady,0,0))
+    return image
+        
 #======================================================================
 def make_prediction(model, image, out_H, out_W, binary=False, conf=0.5):  
     # set model to evaluation mode
     model.eval()
     # turn off gradient tracking
     with torch.no_grad(): 
+        #padding image size to 32*M
+        c, h, w = image.shape
+        image = pad_image_32x(image)
+        
         # apply image transformation. This step turns the image into a tensor.
         # with the shape (1, 3, H, W). See IMG_TRANS in dataset.py
         image = torch.unsqueeze(image, 0)        
         # make the prediction, pass the results through the sigmoid
         # function, and convert the result to a NumPy array
         pred = model.forward(image).squeeze()                
+
+        # crop prediction size to the original size
+        pred = pred[0:h,0:w]
+        
         # Sigmod or softmax has been performed in the net
         if binary:
             pred = cv2.resize(pred.numpy(), (out_W, out_H))
             pred = np.uint8(pred>=conf)
-            #pred = np.uint8(pred*255)
+            #pred = np.uint8(pred*255)            
         else:
             #determine the class by the index with the maximum                     
             pred = np.uint8(torch.argmax(pred, dim=0))        
             #resize to the original size        
             pred = cv2.resize(pred, (out_W, out_H),
                                    interpolation=cv2.INTER_NEAREST)
-            #print('Found classes: ', np.unique(pred))                  
+            #print('Found classes: ', np.unique(pred))                              
     return pred
 
 
@@ -259,7 +282,7 @@ def parse_opt():
                         help='test image directory')
     
     parser.add_argument('--img_sz', type=int, 
-                        default=256, help='input image size (pixels)')
+                        default=None, help='input image size (pixels)')
     
     parser.add_argument('--out_dir', type=str, default=ROOT / 'out', 
                         help='training output path')    
