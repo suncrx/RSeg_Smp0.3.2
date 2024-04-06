@@ -80,6 +80,8 @@ def parse_opt():
                         help='momentum')
     parser.add_argument('--weight_decay', type=float, default=0.005, help='weight decay')
     
+    parser.add_argument('--loss', type=str, default='dice', help='loss function: ["dice","jacard","focal","rmi"]')
+    
     parser.add_argument('--aug', type=bool, default=True, 
                         help='Data augmentation')
     parser.add_argument('--sub_size', type=float, default=1.0, 
@@ -98,6 +100,7 @@ def run(opt):
     arct, encoder = opt.arct, opt.encoder
     batch_size, epochs = opt.batch_size, opt.epochs
     lr, momentum, w_decay = opt.lr, opt.momentum, opt.weight_decay
+    loss = opt.loss
     #check_point = opt.checkpoint
     out_dir = opt.out_dir
     
@@ -127,11 +130,9 @@ def run(opt):
     
     # %% prepare datasets
     # init train, val, test sets
-    print('Preparing data ...')
-    
+    print('Preparing data ...')    
     #preprocessing function from segmentation-models-pytorch package
     preprocessing_fn = smp.encoders.get_preprocessing_fn(encoder, encoder_weight)
-
     train_dataset = SegDataset(root_data_dir, "train", 
                                n_classes=n_classes, imgH=img_sz, imgW=img_sz, 
                                preprocess=preprocessing_fn,
@@ -166,19 +167,24 @@ def run(opt):
         print("ERROR: cannot create a model named '%s'" % model_name)
         sys.exit(0)
     
-    # loss function
-    #lossFunc = smp.utils.losses.DiceLoss()         #version 0.2.1
-    lossFunc = smp_utils.losses.DiceLoss()          #version 0.3.2
-    #lossFunc = RMILoss(with_logits=False)
+    # loss function    
+    if loss == 'rmi':
+        lossFunc = RMILoss(with_logits=False)
+    # default is dice-loss    
+    else:
+        #lossFunc = smp.utils.losses.DiceLoss()         #version 0.2.1
+        lossFunc = smp_utils.losses.DiceLoss()          #version 0.3.2
+    print('Loss function: ', lossFunc.__name__)        
     
     # metrics
     metrics = [smp_utils.metrics.IoU(threshold=0.5)]
     
     # optimizer
-    opt = optim.AdamW(model.parameters(), lr=lr, betas=[0.9, 0.999],
+    opti = optim.AdamW(model.parameters(), lr=lr, betas=[0.9, 0.999],
                      eps=1e-7, amsgrad=False)
     #opt = optim.SGD(model.parameters(), lr=lr, momentum=momentum,
     #                weight_decay=w_decay)
+    print('Optimizer: ', opti)
     
     # learning rate scheduler
     #scheduler = lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.1)
@@ -188,7 +194,8 @@ def run(opt):
     
     train_epoch = smp_utils.train.TrainEpoch(model, loss=lossFunc, 
                                              metrics=metrics,
-                                             optimizer=opt, device=DEV, verbose=True)
+                                             optimizer=opti, 
+                                             device=DEV, verbose=True)
     
     val_epoch = smp_utils.train.ValidEpoch(model, loss=lossFunc, 
                                            metrics=metrics,
@@ -243,7 +250,7 @@ def run(opt):
     plt.plot(val_losses, label="validation_loss")
     plt.title("Training Loss on Dataset")
     plt.xlabel("Epoch #")
-    plt.ylabel("Dice Loss")
+    plt.ylabel("Loss")
     plt.legend(loc="lower left")
     plt.savefig(os.path.join(out_dir, model_name+'_loss.png'), dpi=200)
     
