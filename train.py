@@ -6,12 +6,12 @@ Created on Mon Apr 10 13:38:14 2023
 """
 
 #!pip install segmentation-models-pytorch
-#!pip install pytorch-lightning==1.5.4
-# Ref: https://lightning.ai/docs/pytorch/1.5.4/
 
 #usage example:
-# python train.py --data ./data/waters.yaml out_dir './output' --arct unet --encoder resnet34
-# --imgsz 512 --epochs 2 --batch_size 4 --lr 0.001 --momentum 0.9 --checkpoint True 
+# python train.py --data ./data/waters.yaml -ckp_file ./checkpoint.chk 
+# --out_dir './output' --arct unet --encoder resnet34
+# --imgsz 512 --epochs 2 --batch_size 4 --lr 0.001 
+# --momentum 0.9 --loss dice --checkpoint True   
 
 # %% import installed packages
 import os
@@ -35,8 +35,9 @@ from segmentation_models_pytorch import utils as smp_utils
 
 import models
 from dataset import SegDataset
-from utils.common import log_csv
 from models.loss_rmi import RMILoss
+from misc.common import log_csv
+
 
 #%% get current directory
 FILE = Path(__file__).resolve()
@@ -47,6 +48,7 @@ ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 # determine the device to be used for training and evaluation
 DEV = "cuda" if torch.cuda.is_available() else "cpu"
+#DEV = "cpu"
 print('Device: ', DEV)
 # determine if we will be pinning memory during data loading
 PIN_MEMORY = True if DEV == "cuda" else False
@@ -59,19 +61,28 @@ def parse_opt():
     parser.add_argument('--data', type=str, default=ROOT/'data/vehicles.yaml', 
                         help='dataset yaml path')
     
+    parser.add_argument('--checkpoint_file', type=str, 
+                        #default=ROOT/'data/check.chk', 
+                        default = "D:/GeoData/DLData/vehicle_seg/out/munet_ag.ckp",
+                        help='checkpoint file path from which the model is trained')
+    
     parser.add_argument('--img_sz', '--img', '--img-size', type=int, 
                         default=256, help='train, val image size (pixels)')
     
     parser.add_argument('--out_dir', type=str, default='', 
                         help='training output path')    
     
-    parser.add_argument('--arct', type=str, default='unet', 
-                        help='model architecture (options: unet, unetplusplus, manet, linknet, fpn, pspnet, deeplabv3,deeplabv3plus, pan')
+    parser.add_argument('--arct', type=str, default='munet_ag', 
+                        help='model architecture (options: unet, unetplusplus, \
+                        manet, linknet, fpn, pspnet, deeplabv3,deeplabv3plus, \
+                        pan, unet_scse, unet_se, unet_cbam, \
+                        munet, munet_ag, munet_cbam')
 
-    parser.add_argument('--encoder', type=str, default='resnet34', 
-                        help='encoder for the net (options: resnet34, resnet50, vgg16, vgg19')
+    parser.add_argument('--encoder', type=str, default='resnet18', 
+                        help='encoder for the net (options: resnet18, \
+                            resnet34, resnet50, vgg16, vgg19')
 
-    parser.add_argument('--epochs', type=int, default=5)
+    parser.add_argument('--epochs', type=int, default=2)
     parser.add_argument('--batch_size', type=int, default=4, 
                         help='total batch size for all GPUs, -1 for autobatch')
     parser.add_argument('--lr', type=float, default=0.0001, 
@@ -80,15 +91,19 @@ def parse_opt():
                         help='momentum')
     parser.add_argument('--weight_decay', type=float, default=0.005, help='weight decay')
     
-    parser.add_argument('--loss', type=str, default='dice', help='loss function: ["dice","jacard","focal","rmi"]')
+    parser.add_argument('--loss', type=str, default='dice', help='loss function: \
+                        ["dice","jacard","focal","rmi"]')
     
     parser.add_argument('--aug', type=bool, default=True, 
                         help='Data augmentation')
-    parser.add_argument('--sub_size', type=float, default=1.0, 
+    parser.add_argument('--sub_size', type=float, default=0.2, 
                         help='subsize of training data')
     
     parser.add_argument('--checkpoint', type=bool, default=True, 
-                        help='enable checking point')
+                        help='enable saving check point')
+    
+    parser.add_argument('--save_period', type=int, default=5, 
+                        help='check point saving period')
             
     return parser.parse_args()
 
@@ -96,14 +111,18 @@ def parse_opt():
 #%% run training
 def run(opt): 
     #%% parameters
-    data_yaml_file, img_sz = opt.data, opt.img_sz
+    data_yaml_file = opt.data
     arct, encoder = opt.arct, opt.encoder
+    img_sz = opt.img_sz
     batch_size, epochs = opt.batch_size, opt.epochs
     lr, momentum, w_decay = opt.lr, opt.momentum, opt.weight_decay
     loss = opt.loss
-    #check_point = opt.checkpoint
+
+    checkpoint = opt.checkpoint    
+    checkpoint_file = opt.checkpoint_file
+    save_period = opt.save_period
+
     out_dir = opt.out_dir
-    
     sub_size = opt.sub_size
     #applying data augumentation or not
     bAug = opt.aug
@@ -157,15 +176,74 @@ def run(opt):
                                   shuffle=False, num_workers=n_cpu)
     
     
-    #%% initialize model
-    model, model_name = models.utils.create_model(arct=arct, 
-                                                  encoder=encoder,
-                                                  encoder_weigths=encoder_weight,
-                                                  n_classes = n_classes,
-                                                  in_channels = n_channels)
-    if model is None:
-        print("ERROR: cannot create a model named '%s'" % model_name)
-        sys.exit(0)
+    #%% initialize model 
+    # load check point file
+    if os.path.exists(checkpoint_file):
+        chk = torch.load(checkpoint_file, map_location=DEV)
+        # get parameters from check point
+        start_epoch = chk['epochs'] 
+        train_losses = chk['train_losses']
+        val_losses = chk['val_losses']
+        train_scores = chk['train_scores']
+        val_scores = chk['val_scores']
+        
+        best_score = np.array(val_scores).max()
+        
+        n_classes = chk['n_classes']
+        n_channels = chk['n_channels']
+        class_names = chk['class_names']
+        #batch_size = chk[]
+        arct = chk['arct']
+        encoder = chk['encoder']                                                      
+        # load model from checkpoint
+        model, model_name = models.utils.create_model(arct=arct, 
+                                                      encoder=encoder,                                                      
+                                                      n_classes = n_classes,
+                                                      in_channels = n_channels,
+                                                      encoder_weigths=encoder_weight)
+        model.load_state_dict(chk['model_state_dict']) 
+        
+        # load optimizer from checkpoint
+        opti_name = 'adamw'
+        opti = optim.AdamW(model.parameters(), lr=lr, betas=[0.9, 0.999],
+                          eps=1e-7, amsgrad=False)                                                                  
+        opti.load_state_dict(chk['opti_state_dict'])
+        #!!! transfer optimizer to DEV
+        for state in opti.state.values():
+             for k, v in state.items():
+                 if isinstance(v, torch.Tensor):
+                      state[k] = v.to(DEV)
+        
+        print('\nModel loaded from check point: %s' % checkpoint_file)
+        print('Model name: %s' % model_name)
+        print('trained epochs: %d' % start_epoch)    
+    else:
+        # create a new model
+        model, model_name = models.utils.create_model(arct=arct, 
+                                                      encoder=encoder,
+                                                      encoder_weigths=encoder_weight,
+                                                      n_classes = n_classes,
+                                                      in_channels = n_channels)
+        if model is None:
+            print("ERROR: cannot create a model named '%s'" % model_name)        
+            sys.exit(0)
+        print('\nA new model created.')    
+        print('Model name: %s' % model_name)
+        # optimizer
+        opti_name = 'adamw'
+        opti = optim.AdamW(model.parameters(), lr=lr, betas=[0.9, 0.999],
+                         eps=1e-7, amsgrad=False)
+        #opt = optim.SGD(model.parameters(), lr=lr, momentum=momentum,
+        #                weight_decay=w_decay)
+        
+        start_epoch = 0        
+        best_score = -np.Inf
+        train_losses, val_losses = [], []
+        train_scores, val_scores = [], []
+        
+    #-----------------------------------------------------------------------
+    print('Optimizer: ')
+    print(opti)    
     
     # loss function    
     if loss == 'rmi':
@@ -178,13 +256,6 @@ def run(opt):
     
     # metrics
     metrics = [smp_utils.metrics.IoU(threshold=0.5)]
-    
-    # optimizer
-    opti = optim.AdamW(model.parameters(), lr=lr, betas=[0.9, 0.999],
-                     eps=1e-7, amsgrad=False)
-    #opt = optim.SGD(model.parameters(), lr=lr, momentum=momentum,
-    #                weight_decay=w_decay)
-    print('Optimizer: ', opti)
     
     # learning rate scheduler
     #scheduler = lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.1)
@@ -203,14 +274,11 @@ def run(opt):
     
     
     startTime = time.time()
-    max_score = -np.inf
-    best_epoch = 0
-    train_losses, val_losses = [], []
-    train_scores, val_scores = [], []
+    best_epoch = start_epoch        
     loss_name = lossFunc.__name__
-    for i in range(0, epochs):
+    for i in range(start_epoch, start_epoch+epochs):
         time_se = time.time()
-        print('\nEpoch: %d/%d' % (i+1, epochs))
+        print('\nEpoch: %d/%d' % (i+1, start_epoch+epochs))
         train_logs = train_epoch.run(train_dataloader)
         val_logs = val_epoch.run(val_dataloader)
     	
@@ -221,28 +289,48 @@ def run(opt):
         vsc = val_logs['iou_score']
         train_scores.append(tsc)	
         val_scores.append(vsc)	
-        
+        #save losses and scores to log file
         log_csv(train_losses, val_losses, train_scores, val_scores, 
                 os.path.join(out_dir, model_name+'_log.csv'))
+        
         endTime = time.time()
         print("Elapsed time : {:.3f}s".format(endTime - time_se))
-        if vsc > max_score:
-            max_score = vsc        
+        # save the model that obtains a better score 
+        if vsc > best_score:
+            best_score = vsc        
             best_epoch = i+1
-            mdlpath = os.path.join(out_dir, model_name+'_best.pt')        
-            models.utils.save_seg_model(model, mdlpath, arct, encoder, 
+            bestmdl_path = os.path.join(out_dir, model_name+'_best.pt')        
+            models.utils.save_seg_model(bestmdl_path, model, arct, encoder, 
                                         n_classes, class_names, n_channels)
-            print('Best epoch: %d, Best model saved:%s' % (best_epoch, mdlpath))
+            print('Best model saved: %s' % bestmdl_path)
+        
+        # save the check point 
+        if checkpoint and (i % save_period == 0):
+            chkpath = os.path.join(out_dir, model_name+'.ckp')        
+            models.utils.save_checkpoint(chkpath, model, arct, encoder, 
+                                    opti_name, opti, 
+                                    n_classes, class_names, n_channels, 
+                                    len(train_scores), batch_size, 
+                                    #lr, momentum, w_decay, 
+                                    train_losses, val_losses, train_scores, val_scores)
+            print('check point saved: %s' % chkpath)
         
     endTime = time.time()
     print("\nTotal time : {:.2f}s".format(endTime - startTime))
+    print('Best model at epoch: %d' % best_epoch)
+    print('Best score: %.3f' % best_score)    
+    #save the last check point
+    if checkpoint:
+        chkpath = os.path.join(out_dir, model_name+'.ckp')        
+        models.utils.save_checkpoint(chkpath, model, arct, encoder, 
+                                opti_name, opti, 
+                                n_classes, class_names, n_channels, 
+                                len(train_scores), batch_size, 
+                                #lr, momentum, w_decay, 
+                                train_losses, val_losses, train_scores, val_scores)
+        print('The last check point saved: %s' % chkpath)
+
     
-    mdlpath = os.path.join(out_dir, model_name+'_last.pt')        
-    models.utils.save_seg_model(model, mdlpath, arct, encoder, 
-                                n_classes, class_names, n_channels)
-    print('Last model: %s' % mdlpath)
-        
-        
     #%% plot training loss
     plt.style.use("ggplot")
     plt.figure()

@@ -1,0 +1,1 @@
+This version supports training model from checkpoint file.

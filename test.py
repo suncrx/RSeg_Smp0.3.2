@@ -134,7 +134,8 @@ def run(opt):
     #--------------------------------------------------------------------    
     # load our model from disk and flash it to the current device
     print("Loading model: %s" % model_file)
-    model, model_name, n_classes, class_names, in_channels = models.utils.load_seg_model(model_file)    
+    (model, model_name, 
+     n_classes, class_names, in_channels) = models.utils.load_seg_model(model_file)    
     
     #---------------------------------------------------------------------------
     # load the image paths in our testing directory and
@@ -272,13 +273,13 @@ def parse_opt():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--model_file', type=str, 
-                        default='D:/GeoData/DLData/Waters/WaterTiles/out/unet_resnet34_best.pt', 
-                        #default='D:/GeoData/DLData/AerialImages/out/unet_resnet34_best.pt',                         
+                        #default='D:/GeoData/DLData/Waters/WaterTiles/out/unet_resnet34_best.pt', 
+                        default='D:/GeoData/DLData/vehicle_seg/out/600epochs/unet_resnet34_best.pt',                         
                         help='model filepath')
     
     parser.add_argument('--data_dir', type=str, 
-                        default='D:/GeoData/DLData/Waters/WaterTiles', 
-                        #default='D:/GeoData/DLData/AerialImages', 
+                        #default='D:/GeoData/DLData/Waters/WaterTiles', 
+                        default='D:/GeoData/DLData/vehicle_seg', 
                         help='test image directory')
     
     parser.add_argument('--img_sz', type=int, 

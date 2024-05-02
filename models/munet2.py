@@ -69,10 +69,10 @@ class UpSampling(nn.Module):
 
 
 # when n_classes=1, the model is for binary segmentation
-class MUnet2(nn.Module):
+class MUNet2(nn.Module):
     
     def __init__(self, n_classes=1, ker_size=3, activation=None):
-        super(MUnet2, self).__init__()
+        super(MUNet2, self).__init__()
 
         self.C1 = Conv(3, 16, kersz=ker_size)
         self.D1 = DownSampling(16)
@@ -136,14 +136,14 @@ class MUnet2(nn.Module):
 
 if __name__ == '__main__':
     a = torch.randn(2, 3, 128, 128)
-    net = MUnet2(n_classes=8, ker_size=5, activation='softmax')
+    net = MUNet2(n_classes=8, ker_size=5, activation='softmax')
     out = net(a)
     print('input size:', a.shape)
     print('output size:', out.shape)
     r = out[0,:,0,0]
     print(r, r.sum())
     
-    net = MUnet2(n_classes=1, ker_size=5, activation='sigmoid')
+    net = MUNet2(n_classes=1, ker_size=5, activation='sigmoid')
     out = net(a)
     print('input size:', a.shape)
     print('output size:', out.shape)

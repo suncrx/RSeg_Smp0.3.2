@@ -86,7 +86,7 @@ class Decoder(Module):
 
 
 
-class MUnet1(Module):
+class MUNet1(Module):
     def __init__(self, encChannels=(3, 16, 32, 64), decChannels=(64, 32, 16),
                  n_classes=1, activation=None):
         super().__init__()
@@ -141,7 +141,7 @@ class MUnet1(Module):
 
     
 if __name__ =='__main__':
-    m = MUnet1(n_classes = 6, activation='softmax')
+    m = MUNet1(n_classes = 6, activation='softmax')
     #print(m)
     inp = torch.randn((1,3,128,256))
     out = m(inp)

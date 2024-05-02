@@ -80,13 +80,13 @@ class OutConv(nn.Module):
 
 
 class MUNet(nn.Module):
-    def __init__(self, in_channels, n_classes, bilinear=False, 
-                 apply_activation=True):
+    def __init__(self, in_channels=3, n_classes=1, bilinear=False, 
+                 activation=None):
         super(MUNet, self).__init__()
         self.n_channels = in_channels
         self.n_classes = n_classes
         self.bilinear = bilinear
-        self.apply_activation = apply_activation
+        #self.apply_activation = apply_activation
 
         self.inc = (DoubleConv(in_channels, 64))
         self.down1 = (Down(64, 128))
@@ -99,6 +99,16 @@ class MUNet(nn.Module):
         self.up3 = (Up(256, 128 // factor, bilinear))
         self.up4 = (Up(128, 64, bilinear))
         self.outc = (OutConv(64, n_classes))
+        
+        self.act = None
+        if activation and activation.lower() == 'sigmoid':
+            # this is for binary segmentation
+            self.act = torch.nn.Sigmoid()
+            
+        elif activation and activation.lower() == 'softmax':
+            # this is for multi-class segmentation
+            self.act = torch.nn.Softmax(dim=1)        
+        
 
     def forward(self, x):
         x1 = self.inc(x)
@@ -111,13 +121,11 @@ class MUNet(nn.Module):
         x = self.up3(x, x2)
         x = self.up4(x, x1)
         logits = self.outc(x)
-        if self.apply_activation:
-            if self.n_classes<2:
-                return torch.nn.Sigmoid()(logits)
-            else:
-                return torch.nn.Softmax(dim=1)(logits)
+        
+        if self.act is not None:
+            return self.act(logits)
         else:
-           return logits
+            return logits
 
 
     def use_checkpointing(self):
@@ -134,7 +142,7 @@ class MUNet(nn.Module):
 
 
 if __name__ == '__main__':
-    un = MUNet(3, 1, apply_activation=True)
+    un = MUNet(in_channels=3, n_classes=1, activation='sigmoid')
     print(un)
     d = torch.rand(1, 3, 256,256)
     print(d.shape)
