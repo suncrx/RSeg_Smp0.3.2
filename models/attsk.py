@@ -52,7 +52,8 @@ class SKLayer(nn.Module):
         u1 = self.split_3x3(x)
         u2 = self.split_5x5(x)
         u = u1 + u2
-        s = self.avgpool(u).flatten(1)
+        #s = self.avgpool(u).flatten(1)
+        s = self.avgpool(u).view(batch_size, -1)
         z = self.fc(s)
         attn_scores = torch.cat([self.fc1(z), self.fc2(z)], dim=1)
         attn_scores = attn_scores.view(batch_size, 2, self.planes)

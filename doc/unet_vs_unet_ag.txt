@@ -1,0 +1,46 @@
+Total time : 3433.98s
+Best model at epoch: 19
+Best score: 0.654
+The last check point saved: D:/GeoData/DLData/vehicle_seg\out\munet.ckp
+
+Total time : 5117.67s
+Best model at epoch: 21
+Best score: 0.676
+The last check point saved: D:/GeoData/DLData/vehicle_seg\out\munet_ag.ckp
+
+Total time : 8194.04s
+Best model at epoch: 20
+Best score: 0.636
+The last check point saved: D:/GeoData/DLData/vehicle_seg\out\munet_cbam.ckp
+
+
+Total time : 295.05s
+Best model at epoch: 12
+Best score: 0.699
+The last check point saved: D:/GeoData/DLData/vehicle_seg\out\unet_resnet34.ckp
+
+Total time : 241.91s
+Best model at epoch: 14
+Best score: 0.711
+The last check point saved: D:/GeoData/DLData/vehicle_seg\out\unet_resnet18.ckp
+
+Total time : 257.43s
+Best model at epoch: 20
+Best score: 0.702
+The last check point saved: D:/GeoData/DLData/vehicle_seg\out\unet_se_resnet18.ckp
+
+Total time : 2410.32s
+Best model at epoch: 20
+Best score: 0.701
+The last check point saved: D:/GeoData/DLData/vehicle_seg\out\unet_sk_resnet18.ckp
+
+Total time : 698.37s
+Best model at epoch: 20
+Best score: 0.679
+The last check point saved: D:/GeoData/DLData/vehicle_seg\out\unet_bam_resnet18.ckp
+
+Total time : 472.78s
+Best model at epoch: 20
+Best score: 0.682
+The last check point saved: D:/GeoData/DLData/vehicle_seg\out\unet_cbam_resnet18.ckp
+

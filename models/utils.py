@@ -8,7 +8,7 @@ Created on Mon Aug 28 19:06:47 2023
 import torch
 import segmentation_models_pytorch as smp
 
-from .munet_ag  import MUNet
+from .munet  import MUNet
 from .munet_ag  import MUNet_AG
 from .munet_cbam  import MUNet_CBAM
 
@@ -63,6 +63,19 @@ def create_model(arct='unet', encoder='resnet34', encoder_weigths='imagenet',
                           in_channels=in_channels,  classes=n_classes,
                           activation=activation_name,
                           decoder_attention_type='cbam') 
+
+    elif arct.lower()=='unet_bam':                        
+         MODEL = Unet_Attention(encoder_name=ENCODER, encoder_weights=ENCODER_WEIGHTS,     
+                          in_channels=in_channels,  classes=n_classes,
+                          activation=activation_name,
+                          decoder_attention_type='bam') 
+
+    elif arct.lower()=='unet_eca':                        
+         MODEL = Unet_Attention(encoder_name=ENCODER, encoder_weights=ENCODER_WEIGHTS,     
+                          in_channels=in_channels,  classes=n_classes,
+                          activation=activation_name,
+                          decoder_attention_type='eca') 
+
                          
     elif arct.lower()=='unetplusplus':
         MODEL = smp.UnetPlusPlus(encoder_name=ENCODER, encoder_weights=ENCODER_WEIGHTS,     
@@ -132,7 +145,7 @@ def create_model(arct='unet', encoder='resnet34', encoder_weigths='imagenet',
 
     else:
         MODEL = None
-        m_fullname = 'None'
+        m_fullname = arct
         
     return MODEL, m_fullname        
 

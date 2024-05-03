@@ -1,17 +1,17 @@
 '''
-PyTorch implementation of "Attention U-Net: Learning Where to Look for the 
-Pancreas." by Oktay et al applied for DRIVE blood vessels dataset. 
-The model's implementation borrows from Hong Jing tutorial on Towards Data 
-Science,available at: https://towardsdatascience.com/biomedical-image-segmentation-attention-u-net-29b6f0827405
-
-
-The paper describing the architecture is available at: https://arxiv.org/pdf/1804.03999.pdf
+PyTorch implementation of UNet
 '''
 
 import torch
 import torch.nn as nn
 
 
+__all__ = [
+    "ConvBlock",
+    "UpConv",
+    "MUnet"
+]
+    
 class ConvBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
@@ -53,56 +53,13 @@ class UpConv(nn.Module):
         x = self.up(x)
         return x
 
-
-class AttentionBlock(nn.Module):
-    """Attention block with learnable parameters"""
-
-    def __init__(self, F_g, F_l, n_coefficients):
-        """
-        :param F_g: number of feature maps (channels) in previous layer
-        :param F_l: number of feature maps in corresponding encoder layer, transferred via skip connection
-        :param n_coefficients: number of learnable multi-dimensional attention coefficients
-        """
-        super(AttentionBlock, self).__init__()
-
-        self.W_gate = nn.Sequential(
-            nn.Conv2d(F_g, n_coefficients, kernel_size=1, stride=1, padding=0, bias=True),
-            nn.BatchNorm2d(n_coefficients)
-        )
-
-        self.W_x = nn.Sequential(
-            nn.Conv2d(F_l, n_coefficients, kernel_size=1, stride=1, padding=0, bias=True),
-            nn.BatchNorm2d(n_coefficients)
-        )
-
-        self.psi = nn.Sequential(
-            nn.Conv2d(n_coefficients, 1, kernel_size=1, stride=1, padding=0, bias=True),
-            nn.BatchNorm2d(1),
-            nn.Sigmoid()
-        )
-
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, gate, skip_connection):
-        """
-        :param gate: gating signal from previous layer
-        :param skip_connection: activation from corresponding encoder layer
-        :return: output activations
-        """
-        g1 = self.W_gate(gate)
-        x1 = self.W_x(skip_connection)
-        psi = self.relu(g1 + x1)
-        psi = self.psi(psi)
-        out = skip_connection * psi
-        return out
-
-
-class MUNet_AG(nn.Module):
-
+#---------------------------------------------
+# Original UNet
+class MUNet(nn.Module):
     def __init__(self, in_channels=3,  n_classes=1, 
                  activation=None):
         
-        super(MUNet_AG, self).__init__()
+        super(MUNet, self).__init__()
 
         self.MaxPool = nn.MaxPool2d(kernel_size=2, stride=2)
 
@@ -114,19 +71,15 @@ class MUNet_AG(nn.Module):
 
 
         self.Up5 = UpConv(1024, 512)
-        self.Att5 = AttentionBlock(F_g=512, F_l=512, n_coefficients=512) 
         self.UpConv5 = ConvBlock(1024, 512)
 
         self.Up4 = UpConv(512, 256)
-        self.Att4 = AttentionBlock(F_g=256, F_l=256, n_coefficients=256) 
         self.UpConv4 = ConvBlock(512, 256)
 
         self.Up3 = UpConv(256, 128)
-        self.Att3 = AttentionBlock(F_g=128, F_l=128, n_coefficients=128) 
         self.UpConv3 = ConvBlock(256, 128)
 
         self.Up2 = UpConv(128, 64)
-        self.Att2 = AttentionBlock(F_g=64, F_l=64, n_coefficients=64) 
         self.UpConv2 = ConvBlock(128, 64)
 
         self.Conv = nn.Conv2d(64, n_classes, kernel_size=1, stride=1, padding=0)
@@ -139,14 +92,14 @@ class MUNet_AG(nn.Module):
         elif activation and activation.lower() == 'softmax':
             # this is for multi-class segmentation
             self.act = torch.nn.Softmax(dim=1)        
-
+        
         # initialize the weights
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)                    
+                nn.init.constant_(m.bias, 0)    
 
 
     def forward(self, x):
@@ -170,23 +123,23 @@ class MUNet_AG(nn.Module):
         e5 = self.Conv5(e5)
 
         d5 = self.Up5(e5)
-        s4 = self.Att5(gate=d5, skip_connection=e4)
-        d5 = torch.cat((s4, d5), dim=1) # concatenate attention-weighted skip connection with previous layer output
+        # concatenate attention-weighted skip connection with previous layer output
+        d5 = torch.cat((e4, d5), dim=1) 
         d5 = self.UpConv5(d5)
 
         d4 = self.Up4(d5)
-        s3 = self.Att4(gate=d4, skip_connection=e3)
-        d4 = torch.cat((s3, d4), dim=1)
+        # concatenate attention-weighted skip connection with previous layer output        
+        d4 = torch.cat((e3, d4), dim=1)
         d4 = self.UpConv4(d4)
 
-        d3 = self.Up3(d4)
-        s2 = self.Att3(gate=d3, skip_connection=e2)
-        d3 = torch.cat((s2, d3), dim=1)
+        d3 = self.Up3(d4)        
+        # concatenate attention-weighted skip connection with previous layer output
+        d3 = torch.cat((e2, d3), dim=1)
         d3 = self.UpConv3(d3)
 
         d2 = self.Up2(d3)
-        s1 = self.Att2(gate=d2, skip_connection=e1)
-        d2 = torch.cat((s1, d2), dim=1)
+        # concatenate attention-weighted skip connection with previous layer output
+        d2 = torch.cat((e1, d2), dim=1)
         d2 = self.UpConv2(d2)
 
         out = self.Conv(d2)
@@ -198,7 +151,7 @@ class MUNet_AG(nn.Module):
 
 
 if __name__ == '__main__':
-    m = MUNet_AG(in_channels=3, n_classes=5, activation='softmax')
+    m = MUNet(in_channels=3, n_classes=5, activation='softmax')
     print(m)
     
     d = torch.rand(1, 3, 256,256)

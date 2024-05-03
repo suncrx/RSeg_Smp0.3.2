@@ -35,7 +35,7 @@ class ChannelAttention(nn.Module):
 
 
 class SpatialAttention(nn.Module):
-    def __init__(self, kernel_size=7, padding=3):
+    def __init__(self, kernel_size=3, padding=1):
         super(SpatialAttention, self).__init__()
         self.conv1 = nn.Conv2d(2, 1, kernel_size, padding=padding, bias=False)
         self.sigmoid = nn.Sigmoid()
@@ -49,15 +49,15 @@ class SpatialAttention(nn.Module):
 
 
 class CBAM(nn.Module):
-    def __init__(self, in_channels, reduction=16, kernel_size=7):
+    def __init__(self, in_channels, reduction=8, kernel_size=3):
         super(CBAM, self).__init__()
         self.ca = ChannelAttention(in_channels, reduction)
         self.sa = SpatialAttention(kernel_size)
 
     def forward(self, x):
         out = x * self.ca(x)
-        result = out * self.sa(out)
-        return result
+        return out * self.sa(out)
+        
 
 if __name__ == '__main__':
     cbam64 = CBAM(64)

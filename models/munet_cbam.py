@@ -1,19 +1,5 @@
 '''
-Official implementation of paper "Retinal Image Restoration and Vessel Segmentation 
-using Modified Cycle-CBAM and CBAM-UNet"
-
-Cycle-consistent Generative Adversarial Network (CycleGAN) with 
-Convolutional Block Attention Module (CBAM) - Cycle-CBAM. 
-Modified UNet with CBAM - CBAM-UNet.
-
-@inproceedings{alimanov2022retinal,
-  title={Retinal Image Restoration and Vessel Segmentation using Modified Cycle-CBAM and CBAM-UNet},
-  author={Alimanov, Alnur and Islam, Md Baharul},
-  booktitle={2022 Innovations in Intelligent Systems and Applications Conference (ASYU)},
-  pages={1--6},
-  year={2022},
-  organization={IEEE}
-}
+implementation of UNet + CBAM attention
 
 '''
 
@@ -55,90 +41,94 @@ class SpatialAttention(nn.Module):
         return self.sigmoid(x)
 
 
-class conv_block(nn.Module):
-    def __init__(self, in_c, out_c):
-        super().__init__()
 
-        self.conv1 = nn.Conv2d(in_c, out_c, kernel_size=3, padding=1)
-        self.in1 = nn.InstanceNorm2d(out_c)
+class ConvBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, use_atten=True):
+        super(ConvBlock, self).__init__()
 
-        self.conv2 = nn.Conv2d(out_c, out_c, kernel_size=3, padding=1)
-        self.in2 = nn.InstanceNorm2d(out_c)
+        # number of input channels is a number of filters in the previous layer
+        # number of output channels is a number of filters in the current layer
+        # "same" convolutions
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, 
+                      padding=1, bias=True),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, 
+                      padding=1, bias=True),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+        
+        self.use_atten = use_atten
+        if use_atten:
+            self.ca = ChannelAttention(out_channels)
+            self.sa = SpatialAttention()
 
-        self.relu = nn.ReLU()
-
-        self.ca = ChannelAttention(out_c)
-        self.sa = SpatialAttention()
-
-    def forward(self, inputs):
-        x = self.conv1(inputs)
-        x = self.in1(x)
-        x = self.relu(x)
-
-        x = self.conv2(x)
-        x = self.in2(x)
-        x = self.relu(x)
-
-        x = self.ca(x) * x
-        x = self.sa(x) * x
-
-        return x
-
-
-class encoder_block(nn.Module):
-    def __init__(self, in_c, out_c):
-        super().__init__()
-
-        self.conv = conv_block(in_c, out_c)
-        self.pool = nn.MaxPool2d((2, 2))
-
-    def forward(self, inputs):
-        x = self.conv(inputs)
-        p = self.pool(x)
-
-        return x, p
-
-
-class decoder_block(nn.Module):
-    def __init__(self, in_c, out_c):
-        super().__init__()
-
-        self.up = nn.ConvTranspose2d(in_c, out_c, kernel_size=2, stride=2, padding=0)
-        self.conv = conv_block(out_c + out_c, out_c)
-
-    def forward(self, inputs, skip):
-        x = self.up(inputs)
-        x = torch.cat([x, skip], axis=1)
+    def forward(self, x):
         x = self.conv(x)
+        if self.use_atten:
+            x = self.ca(x) * x
+            x = self.sa(x) * x
+            
         return x
+
+
+class UpConv(nn.Module):
+
+    def __init__(self, in_channels, out_channels):
+        super(UpConv, self).__init__()
+
+        self.up = nn.Sequential(
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, 
+                      padding=1, bias=True),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+
+    def forward(self, x):
+        x = self.up(x)
+        return x
+
 
 
 class MUNet_CBAM(nn.Module):
-    def __init__(self, in_channels=3, n_classes=1, 
+
+    def __init__(self, in_channels=3,  n_classes=1, 
                  activation=None):
         
-        super().__init__()
+        super(MUNet_CBAM, self).__init__()
 
-        """ Encoder """
-        self.e1 = encoder_block(in_channels, 64)
-        self.e2 = encoder_block(64, 128)
-        self.e3 = encoder_block(128, 256)
-        self.e4 = encoder_block(256, 512)
+        self.MaxPool = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        """ Bottleneck """
-        self.b1 = conv_block(512, 640)
-        self.b2 = conv_block(640, 768)
-        self.b3 = conv_block(768, 896)
-        self.b4 = conv_block(896, 1024)
+        self.Conv1 = ConvBlock(in_channels, 64)
+        
+        self.Conv2 = ConvBlock(64, 128)
+        
+        self.Conv3 = ConvBlock(128, 256)
+        
+        self.Conv4 = ConvBlock(256, 512)
+        
+        self.Conv5 = ConvBlock(512, 1024)
 
-        """ Decoder """
-        self.d1 = decoder_block(1024, 512)
-        self.d2 = decoder_block(512, 256)
-        self.d3 = decoder_block(256, 128)
-        self.d4 = decoder_block(128, 64)
+        self.Up5 = UpConv(1024, 512)
+        
+        self.UpConv5 = ConvBlock(1024, 512)
 
-        """ Classifier """
-        self.outputs = nn.Conv2d(64, n_classes, kernel_size=1, padding=0)
+        self.Up4 = UpConv(512, 256)
+        
+        self.UpConv4 = ConvBlock(512, 256)
+
+        self.Up3 = UpConv(256, 128)
+        
+        self.UpConv3 = ConvBlock(256, 128)
+
+        self.Up2 = UpConv(128, 64)
+        
+        self.UpConv2 = ConvBlock(128, 64)
+
+        self.Conv = nn.Conv2d(64, n_classes, kernel_size=1, stride=1, padding=0)
         
         self.act = None
         if activation and activation.lower() == 'sigmoid':
@@ -148,28 +138,53 @@ class MUNet_CBAM(nn.Module):
         elif activation and activation.lower() == 'softmax':
             # this is for multi-class segmentation
             self.act = torch.nn.Softmax(dim=1)        
-            
 
-    def forward(self, inputs):
-        """ Encoder """
-        s1, p1 = self.e1(inputs)
-        s2, p2 = self.e2(p1)
-        s3, p3 = self.e3(p2)
-        s4, p4 = self.e4(p3)
+        # initialize the weights
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)                    
 
-        """ Bottleneck """
-        b = self.b1(p4)
-        b = self.b2(b)
-        b = self.b3(b)
-        b = self.b4(b)
 
-        """ Decoder """
-        d1 = self.d1(b, s4)
-        d2 = self.d2(d1, s3)
-        d3 = self.d3(d2, s2)
-        d4 = self.d4(d3, s1)
+    def forward(self, x):
+        """
+        e : encoder layers
+        d : decoder layers
+        """
+        e1 = self.Conv1(x)
 
-        out = self.outputs(d4)
+        e2 = self.MaxPool(e1)
+        e2 = self.Conv2(e2)
+
+        e3 = self.MaxPool(e2)
+        e3 = self.Conv3(e3)
+
+        e4 = self.MaxPool(e3)
+        e4 = self.Conv4(e4)
+
+        e5 = self.MaxPool(e4)
+        e5 = self.Conv5(e5)
+
+        d5 = self.Up5(e5)
+        # concatenate attention-weighted skip connection with previous layer output
+        d5 = torch.cat((e4, d5), dim=1) 
+        d5 = self.UpConv5(d5)
+
+        d4 = self.Up4(d5)        
+        d4 = torch.cat((e3, d4), dim=1)
+        d4 = self.UpConv4(d4)
+
+        d3 = self.Up3(d4)
+        d3 = torch.cat((e2, d3), dim=1)
+        d3 = self.UpConv3(d3)
+
+        d2 = self.Up2(d3)
+        d2 = torch.cat((e1, d2), dim=1)
+        d2 = self.UpConv2(d2)
+
+        out = self.Conv(d2)
         
         if self.act is not None:
             out = self.act(out)
@@ -178,11 +193,10 @@ class MUNet_CBAM(nn.Module):
 
 
 if __name__ == '__main__':
-    net = MUNet_CBAM(in_channels=3, n_classes=4, activation='softmax')
-    print(net)
+    m = MUNet_CBAM(in_channels=3, n_classes=5, activation='softmax')
+    print(m)
     
-    d = torch.rand(4, 3, 256,256)
+    d = torch.rand(1, 3, 256,256)
     print(d.shape)
-    o=net(d)
+    o=m(d)
     print(o.shape)
-    

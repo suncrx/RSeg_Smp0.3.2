@@ -4,14 +4,14 @@ import torch
 from torch import nn
 
 
-class SElayer(nn.Module):
-    def __init__(self, channel, reduction=16):
-        super(SElayer,self).__init__()
+class SELayer(nn.Module):
+    def __init__(self, in_channels, reduction=16):
+        super(SELayer,self).__init__()
         self.avg_pool = torch.nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Sequential(
-            nn.Linear(channel, channel // reduction, bias=False),
+            nn.Linear(in_channels, in_channels // reduction, bias=False),
             nn.ReLU(inplace = True),
-            nn.Linear(channel // reduction, channel, bias=False),
+            nn.Linear(in_channels // reduction, in_channels, bias=False),
             nn.Sigmoid()
             )
         
@@ -23,8 +23,8 @@ class SElayer(nn.Module):
 
 
 if __name__ == '__main__':
-    se64 = SElayer(64)
-    se128 = SElayer(128)
+    se64 = SELayer(64)
+    se128 = SELayer(128)
     print(se64)
     print(se128)
     

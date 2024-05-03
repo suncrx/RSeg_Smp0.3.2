@@ -41,7 +41,7 @@ from misc.common import log_csv
 
 #%% get current directory
 FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0]  # FasterRCNN root directory
+ROOT = FILE.parents[0]  #  root directory
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
@@ -63,7 +63,7 @@ def parse_opt():
     
     parser.add_argument('--checkpoint_file', type=str, 
                         #default=ROOT/'data/check.chk', 
-                        default = "D:/GeoData/DLData/vehicle_seg/out/munet_ag.ckp",
+                        default = "D:/GeoData/DLData/vehicle_seg/out/unet.ckp",
                         help='checkpoint file path from which the model is trained')
     
     parser.add_argument('--img_sz', '--img', '--img-size', type=int, 
@@ -72,17 +72,17 @@ def parse_opt():
     parser.add_argument('--out_dir', type=str, default='', 
                         help='training output path')    
     
-    parser.add_argument('--arct', type=str, default='munet_ag', 
+    parser.add_argument('--arct', type=str, default='unet', 
                         help='model architecture (options: unet, unetplusplus, \
                         manet, linknet, fpn, pspnet, deeplabv3,deeplabv3plus, \
                         pan, unet_scse, unet_se, unet_cbam, \
                         munet, munet_ag, munet_cbam')
 
-    parser.add_argument('--encoder', type=str, default='resnet18', 
+    parser.add_argument('--encoder', type=str, default='resnet50', 
                         help='encoder for the net (options: resnet18, \
                             resnet34, resnet50, vgg16, vgg19')
 
-    parser.add_argument('--epochs', type=int, default=2)
+    parser.add_argument('--epochs', type=int, default=20)
     parser.add_argument('--batch_size', type=int, default=4, 
                         help='total batch size for all GPUs, -1 for autobatch')
     parser.add_argument('--lr', type=float, default=0.0001, 
@@ -96,7 +96,7 @@ def parse_opt():
     
     parser.add_argument('--aug', type=bool, default=True, 
                         help='Data augmentation')
-    parser.add_argument('--sub_size', type=float, default=0.2, 
+    parser.add_argument('--sub_size', type=float, default=1.0, 
                         help='subsize of training data')
     
     parser.add_argument('--checkpoint', type=bool, default=True, 
